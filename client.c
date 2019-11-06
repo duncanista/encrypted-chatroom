@@ -8,7 +8,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <pthread.h>
-#include "proto.h"
+#include "config.h"
 #include "string.h"
 
 // global variables and atomic signal as flag
@@ -16,14 +16,14 @@ volatile sig_atomic_t flag = 0;
 int sockfd = 0;
 char nickname[LENGTH_NAME] = {};
 
-void catch_ctrl_c_and_exit(int sig) {
+// Once ctrl +  c is typed it shutdowns the client
+void shutdown(int sig) {
     flag = 1;
 }
 
+// Receive messages
 void receive_message() {
-    char message[LENGTH_SEND] = {};
-
-    
+    char message[LENGTH_SEND] = {}; 
 
     while (1) {
         int receive = recv(sockfd, message, LENGTH_SEND, 0);
@@ -39,14 +39,15 @@ void receive_message() {
     }
 }
 
+// Send encrypted message
 void send_message() {
     char message[LENGTH_MSG] = {};
     while (1) {
         printf("\r%s", "> ");
         fflush(stdout);
         while (fgets(message, LENGTH_MSG, stdin) != NULL) {
-            int i;
-            for (i = 0; i < LENGTH_MSG; i++) { // trim \n
+            // Remove \n on messages
+            for (int i = 0; i < LENGTH_MSG; i++) {
                 if (message[i] == '\n') {
                     message[i] = '\0';
                     break;
@@ -60,24 +61,25 @@ void send_message() {
             }
         }
 
-        // encrypting
+        // Encrypt message
         char key[] = "OPERATINGSYSTEMS";
         int i;
         for(i = 0; i < strlen(message); i++) {
             message[i] = message[i] ^ key[i % (sizeof(key)/sizeof(char))];
         }
-	   
+    
+        // Send the encrypted message through a socket
         send(sockfd, message, LENGTH_MSG, 0);
         if (strcmp(message, "/exit") == 0) {
             break;
         }
     }
-    catch_ctrl_c_and_exit(2);
+    shutdown(2);
 }
 
 int main()
 {
-    signal(SIGINT, catch_ctrl_c_and_exit);
+    signal(SIGINT, shutdown);
 
     // Setting up nickname
     printf("\033[1;36mPlease enter your name: ");
@@ -137,8 +139,10 @@ int main()
     // Assigned IP: [IP:PORT]
     printf("Assigned IP \033[0;35m[\033[0m%s:%d\033[0;35m]\033[0m\n", inet_ntoa(client_info.sin_addr), ntohs(client_info.sin_port));
 
+    // Send to the server the name and its length
     send(sockfd, nickname, LENGTH_NAME, 0);
 
+    // Thread for sending messages
     pthread_t send_message_thread;
     if (pthread_create(&send_message_thread, NULL, (void *) send_message, NULL) != 0) {
         // Pthread error
@@ -147,6 +151,7 @@ int main()
         exit(EXIT_FAILURE);
     }
 
+    // Thread for receiving messages
     pthread_t receive_message_thread;
     if (pthread_create(&receive_message_thread, NULL, (void *) receive_message, NULL) != 0) {
         // Pthread error
@@ -155,6 +160,7 @@ int main()
         exit(EXIT_FAILURE);
     }
 
+    // If the user types ctr + c, it will be catched by the shutdown function and then it will break the connection
     while (1) {
         if(flag) {
             printf("\033[0;31m\nLeaving chatroom...\n");

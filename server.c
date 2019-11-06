@@ -8,15 +8,15 @@
 #include <netinet/in.h> // PF_INET
 #include <arpa/inet.h>
 #include <pthread.h>
-#include "proto.h"
+#include "config.h"
 #include "server.h"
 
 // Global variables and main sockets
 int server_sockfd = 0, client_sockfd = 0;
 ClientList *root, *now;
 
-
-void catch_ctrl_c_and_exit(int sig) {
+// Once ctrl +  c is typed, it shutdowns the server
+void shutdown(int sig) {
     ClientList *tmp;
     while (root != NULL) {
         printf("\033[0;31m\nClosing socket: %d\n", root->data);
@@ -31,6 +31,7 @@ void catch_ctrl_c_and_exit(int sig) {
     exit(EXIT_SUCCESS);
 }
 
+// Send to all the connected clients (at least two) the encrypted message
 void send_to_all_clients(ClientList *np, char tmp_buffer[]) {
     ClientList *tmp = root->next;
     while (tmp != NULL) {
@@ -45,6 +46,7 @@ void send_to_all_clients(ClientList *np, char tmp_buffer[]) {
     }
 }
 
+// This handler ensures the connectivity and the workflow between server-client
 void client_handler(void *p_client) {
     int leave_flag = 0;
     char nickname[LENGTH_NAME] = {};
@@ -52,7 +54,7 @@ void client_handler(void *p_client) {
     char send_buffer[LENGTH_SEND] = {};
     ClientList *np = (ClientList *)p_client;
 
-    // Setting up name
+    // Getting the nickname of the client and setting it to its Node
     if (recv(np->data, nickname, LENGTH_NAME, 0) <= 0 || strlen(nickname) < 2 || strlen(nickname) >= LENGTH_NAME-1) {
         printf("%s didn't input name.\n", np->ip);
         leave_flag = 1;
@@ -64,7 +66,7 @@ void client_handler(void *p_client) {
         send_to_all_clients(np, send_buffer);
     }
 
-    // Conversation
+    // Workflow and conversation
     while (1) {
         if (leave_flag) {
             break;
@@ -74,7 +76,7 @@ void client_handler(void *p_client) {
             if (strlen(recv_buffer) == 0) {
                 continue;
             }
-            // decrypt
+            // Decrypting received messages
             char key[] = "OPERATINGSYSTEMS";
             int i;
             for(i = 0; i < strlen(recv_buffer); i++) {
@@ -82,7 +84,7 @@ void client_handler(void *p_client) {
             }
 
             sprintf(send_buffer, "%s[%s]: %s ", np->name, np->ip, recv_buffer);
-        } else if (receive == 0 || strcmp(recv_buffer, "exit") == 0) {
+        } else if (receive == 0 || strcmp(recv_buffer, "/exit") == 0) {
             printf("[!] \033[0;33m%s [%s:%d] left the chatroom.\n", np->name, np->ip, np->data);
             printf("\033[0m");
             sprintf(send_buffer, "\033[0;33m%s [%s] left the chatroom.\033[0m", np->name, np->ip);
@@ -91,15 +93,16 @@ void client_handler(void *p_client) {
             printf("Fatal Error: -1\n");
             leave_flag = 1;
         }
+        // Send to every client
         send_to_all_clients(np, send_buffer);
     }
 
     // Remove Node
     close(np->data);
-    if (np == now) { // remove an edge node
+    if (np == now) { // Edge
         now = np->previous;
         now->next = NULL;
-    } else { // remove a middle node
+    } else { // Mid
         np->previous->next = np->next;
         np->next->previous = np->previous;
     }
@@ -108,7 +111,7 @@ void client_handler(void *p_client) {
 
 int main()
 {
-    signal(SIGINT, catch_ctrl_c_and_exit);
+    signal(SIGINT, shutdown);
 
     // Create socket
     server_sockfd = socket(AF_INET , SOCK_STREAM , 0);
@@ -164,7 +167,7 @@ int main()
 
         pthread_t id;
         if (pthread_create(&id, NULL, (void *)client_handler, (void *)c) != 0) {
-            // Pthread error
+        // Pthread error
         printf("\033[0;31m[!] An error has ocurred.\n");
             exit(EXIT_FAILURE);
         }
